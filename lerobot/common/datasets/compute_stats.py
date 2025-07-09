@@ -87,7 +87,7 @@ def compute_episode_stats(episode_data: dict[str, list[str] | np.ndarray], featu
     for key, data in episode_data.items():
         if features[key]["dtype"] == "string":
             continue  # HACK: we should receive np.arrays of strings
-        elif features[key]["dtype"] in ["image", "video"]:
+        elif features[key]["dtype"] in ["image", "video", "depth"]:
             ep_ft_array = sample_images(data)  # data is a list of image paths
             axes_to_reduce = (0, 2, 3)  # keep channel dim
             keepdims = True
@@ -102,6 +102,10 @@ def compute_episode_stats(episode_data: dict[str, list[str] | np.ndarray], featu
         if features[key]["dtype"] in ["image", "video"]:
             ep_stats[key] = {
                 k: v if k == "count" else np.squeeze(v / 255.0, axis=0) for k, v in ep_stats[key].items()
+            }
+        elif features[key]["dtype"] == "depth":
+            ep_stats[key] = {
+                k: v if k == "count" else np.squeeze(v, axis=0) for k, v in ep_stats[key].items()
             }
 
     return ep_stats

@@ -67,6 +67,7 @@ from lerobot.common.datasets.utils import (
 )
 from lerobot.common.datasets.video_utils import (
     VideoFrame,
+    DepthFrame,
     decode_video_frames,
     encode_video_frames,
     get_safe_default_codec,
@@ -309,13 +310,14 @@ class LeRobotDatasetMetadata:
         robot_type: str | None = None,
         features: dict | None = None,
         use_videos: bool = True,
+        allow_overwrite: bool = False,
     ) -> "LeRobotDatasetMetadata":
         """Creates metadata for a LeRobotDataset."""
         obj = cls.__new__(cls)
         obj.repo_id = repo_id
         obj.root = Path(root) if root is not None else HF_LEROBOT_HOME / repo_id
 
-        obj.root.mkdir(parents=True, exist_ok=False)
+        obj.root.mkdir(parents=True, exist_ok=allow_overwrite)
 
         if robot is not None:
             features = get_features_from_robot(robot, use_videos)
@@ -739,6 +741,12 @@ class LeRobotDataset(torch.utils.data.Dataset):
             video_frames = self._query_videos(query_timestamps, ep_idx)
             item = {**video_frames, **item}
 
+        # if len(self.meta.depth_keys) > 0:
+        #     current_ts = item["timestamp"].item()
+        #     query_timestamps = self._get_query_timestamps(current_ts, query_indices)
+        #     depth_frames = self._query_depth_frames(query_timestamps, ep_idx)
+        #     item = {**depth_frames, **item}
+
         if self.image_transforms is not None:
             image_keys = self.meta.camera_keys
             for cam in image_keys:
@@ -819,7 +827,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
                     f"An element of the frame is not in the features. '{key}' not in '{self.features.keys()}'."
                 )
 
-            if self.features[key]["dtype"] in ["image", "video"]:
+            if self.features[key]["dtype"] in ["image", "video", "depth"]:
                 img_path = self._get_image_file_path(
                     episode_index=self.episode_buffer["episode_index"], image_key=key, frame_index=frame_index
                 )
@@ -998,6 +1006,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         image_writer_processes: int = 0,
         image_writer_threads: int = 0,
         video_backend: str | None = None,
+        allow_overwrite: bool = False,
     ) -> "LeRobotDataset":
         """Create a LeRobot Dataset from scratch in order to record data."""
         obj = cls.__new__(cls)
@@ -1009,6 +1018,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             robot_type=robot_type,
             features=features,
             use_videos=use_videos,
+            allow_overwrite=allow_overwrite,
         )
         obj.repo_id = obj.meta.repo_id
         obj.root = obj.meta.root
@@ -1157,6 +1167,20 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
             if isinstance(feats, VideoFrame):
                 video_frame_keys.append(key)
         return video_frame_keys
+    
+    @property
+    def depth_frame_keys(self) -> list[str]:
+        """Keys to access video frames that requires to be decoded into images.
+
+        Note: It is empty if the dataset contains images only,
+        or equal to `self.cameras` if the dataset contains videos only,
+        or can even be a subset of `self.cameras` in a case of a mixed image/video dataset.
+        """
+        depth_frame_keys = []
+        for key, feats in self.hf_dataset.features.items():
+            if isinstance(feats, DepthFrame):
+                depth_frame_keys.append(key)
+        return depth_frame_keys
 
     @property
     def num_frames(self) -> int:

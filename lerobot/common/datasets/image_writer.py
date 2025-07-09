@@ -39,7 +39,27 @@ def safe_stop_image_writer(func):
 
 
 def image_array_to_pil_image(image_array: np.ndarray, range_check: bool = True) -> PIL.Image.Image:
-    # TODO(aliberts): handle 1 channel and 4 for depth images
+    """
+    Convert a numpy array to a PIL.Image.
+
+    - RGB images: shape (C, H, W) or (H, W, C), 3 channels, uint8 or float in [0,1].
+    - Depth images: shape (H, W, 1), float32/float64 (meters) or uint16 (millimeters).
+      Returns a 16-bit PNG-compatible PIL.Image (mode 'I;16').
+    """
+    if image_array.ndim == 3 and image_array.shape[-1] == 1:
+        # Depth image: (H, W, 1)
+        depth = image_array.squeeze(-1)
+        if depth.dtype == np.uint16:
+            # Already in millimeters
+            return PIL.Image.fromarray(depth, mode="I;16")
+        elif depth.dtype in (np.float32, np.float64):
+            # Convert meters to millimeters, clip, cast
+            depth_mm = np.clip(np.round(depth * 1000), 0, 65535).astype(np.uint16)
+            return PIL.Image.fromarray(depth_mm, mode="I;16")
+        else:
+            raise TypeError(f"Unsupported depth dtype: {depth.dtype}. Use float32/float64 (meters) or uint16 (mm).")
+
+    # RGB image
     if image_array.ndim != 3:
         raise ValueError(f"The array has {image_array.ndim} dimensions, but 3 is expected for an image.")
 
@@ -62,7 +82,6 @@ def image_array_to_pil_image(image_array: np.ndarray, range_check: bool = True) 
                     f"However, the provided range is [{min_}, {max_}]. Please adjust the range or "
                     "provide a uint8 image with values in the range [0, 255]."
                 )
-
         image_array = (image_array * 255).astype(np.uint8)
 
     return PIL.Image.fromarray(image_array)
@@ -87,8 +106,8 @@ def worker_thread_loop(queue: queue.Queue):
         if item is None:
             queue.task_done()
             break
-        image_array, fpath = item
-        write_image(image_array, fpath)
+        data, fpath = item
+        write_image(data, fpath)
         queue.task_done()
 
 
@@ -105,7 +124,7 @@ def worker_process(queue: queue.Queue, num_threads: int):
 
 class AsyncImageWriter:
     """
-    This class abstract away the initialisation of processes or/and threads to
+    This class abstracts away the initialisation of processes or/and threads to
     save images on disk asynchronously, which is critical to control a robot and record data
     at a high frame rate.
 
@@ -147,8 +166,10 @@ class AsyncImageWriter:
                 self.processes.append(p)
 
     def save_image(self, image: torch.Tensor | np.ndarray | PIL.Image.Image, fpath: Path):
+        """
+        Save an RGB or depth image asynchronously. The image can be a torch.Tensor, np.ndarray, or PIL.Image.Image.
+        """
         if isinstance(image, torch.Tensor):
-            # Convert tensor to numpy array to minimize main process time
             image = image.cpu().numpy()
         self.queue.put((image, fpath))
 

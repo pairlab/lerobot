@@ -98,6 +98,14 @@ def to_hwc_uint8_numpy(chw_float32_torch: torch.Tensor) -> np.ndarray:
     hwc_uint8_numpy = (chw_float32_torch * 255).type(torch.uint8).permute(1, 2, 0).numpy()
     return hwc_uint8_numpy
 
+def to_hwc_uint16_numpy(chw_uint16_torch: torch.Tensor) -> np.ndarray:
+    assert chw_uint16_torch.dtype == torch.int16
+    assert chw_uint16_torch.ndim == 3
+    c, h, w = chw_uint16_torch.shape
+    assert c < h and c < w, f"expect channel first images, but instead {chw_uint16_torch.shape}"
+    assert c == 1, f"expect single channel depth images, but instead {chw_uint16_torch.shape}"
+    hw_uint16_numpy = chw_uint16_torch.type(torch.uint16).squeeze(0).numpy()
+    return hw_uint16_numpy
 
 def visualize_dataset(
     dataset: LeRobotDataset,
@@ -153,7 +161,13 @@ def visualize_dataset(
             # display each camera image
             for key in dataset.meta.camera_keys:
                 # TODO(rcadene): add `.compress()`? is it lossless?
-                rr.log(key, rr.Image(to_hwc_uint8_numpy(batch[key][i])))
+                data = batch[key][i]
+                if data.dtype == torch.float32:
+                    rr.log(key, rr.Image(to_hwc_uint8_numpy(data)))
+                elif data.dtype == torch.int16:
+                    rr.log(key, rr.DepthImage(to_hwc_uint16_numpy(data)))
+                else:
+                    raise ValueError(f'{key} is not an image or depth image. Skipping')
 
             # display each dimension of action space (e.g. actuators command)
             if "action" in batch:
