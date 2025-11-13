@@ -725,6 +725,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx) -> dict:
         item = self.hf_dataset[idx]
+        # TODO: currently it is loading depth as int16 instead of uint16. Need to fix this.
         ep_idx = item["episode_index"].item()
 
         query_indices = None
